@@ -94,3 +94,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         uint64 at,
         uint32 weight
     );
+
+    event BountyPosted(uint64 indexed bountyId, uint64 indexed factId, address indexed sponsor, uint256 amount, bytes32 rubric);
+    event BountyToppedUp(uint64 indexed bountyId, address indexed sponsor, uint256 amount, uint256 newTotal);
+    event BountyCommitted(uint64 indexed bountyId, address indexed solver, bytes32 solutionHash, uint64 at);
+    event BountyChallenged(uint64 indexed bountyId, address indexed challenger, bytes32 challengeHash, uint64 at);
+    event BountyResolved(uint64 indexed bountyId, uint64 indexed factId, address indexed winner, uint256 paid, uint256 fee, bool challenged);
+
+    event DisputeOpened(uint64 indexed disputeId, uint64 indexed bountyId, address indexed opener, uint96 bond, bytes32 challengeHash, uint64 at);
+    event DisputeFinalized(uint64 indexed disputeId, uint64 indexed bountyId, bool upheld, uint256 slashToWinner, uint256 slashToTreasury);
+
+    event TreasurySet(address indexed oldTreasury, address indexed newTreasury);
+    event FeeScheduleSet(uint16 feeBps, uint96 minBondWei, uint96 minBountyWei, uint64 disputeWindow, uint64 commitWindow, uint64 revealWindow);
+    event GuardianAction(address indexed guardian, bytes32 indexed tag, uint64 at);
+    event AdminHandoffProposed(address indexed from, address indexed to, uint64 effectiveAfter);
+    event AdminHandoffAccepted(address indexed newAdmin);
+
+    // =============================================================
+    //                              TYPES
+    // =============================================================
+
+    struct FactCore {
+        bytes32 topic;
+        bytes32 factHash;
+        bytes32 uriHash;
+        address submitter;
+        uint64 publishedAt;
+        uint64 editedAt;
+        uint32 flags;
+        uint32 attestationScore;
+    }
+
+    struct AttestationLane {
+        uint32 weight;
+        uint32 maxPerFact;
+        uint64 cooldown;
+        bool enabled;
+    }
+
+    struct FactPacket {
+        bytes32 topic;
+        bytes32 factHash;
+        bytes32 uriHash;
+        address submitter;
+        uint64 deadline;
+        uint64 signerNonce;
+        uint32 lane;
+        uint32 weightHint;
+        bytes32 context;
