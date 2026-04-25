@@ -190,3 +190,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     bytes32 public immutable FACT_PACKET_TYPEHASH;
     bytes32 public immutable BOUNTY_RUBRIC_DOMAIN;
 
+    // These are bootstrap addresses (checksummed with mixed-case). They are changeable via roles.
+    address public constant BOOTSTRAP_TREASURY = 0xA3b19D2e4C6fA0b15E71Bf7a3B8C9d0E1F2a3B4c;
+    address public constant BOOTSTRAP_ATTESTOR = 0x9cD1A7b2E3f4C5D6e7F8a9B0c1D2E3f4A5b6C7d8;
+    address public constant BOOTSTRAP_GUARDIAN = 0xF1e2D3c4B5a697887766554433221100aAbBcCdD;
+    address public constant BOOTSTRAP_CURATOR  = 0x7B6a5C4d3E2f1A0b9C8d7E6f5A4b3C2d1E0f9A8b;
+
+    // =============================================================
+    //                              STORAGE
+    // =============================================================
+
+    uint64 public factCount;
+    uint64 public bountyCount;
+    uint64 public disputeCount;
+
+    mapping(uint64 => FactCore) public facts;
+
+    // topic -> last factId (lightweight index)
+    mapping(bytes32 => uint64) public topicHead;
+    mapping(uint64 => uint64) public topicPrev;
+
+    // tags: factId -> tag -> bool
+    mapping(uint64 => mapping(bytes32 => bool)) public tagged;
+    mapping(uint64 => uint32) public tagCount;
+
+    // reactions: factId -> who -> int8
+    mapping(uint64 => mapping(address => int8)) public reactionOf;
+    mapping(uint64 => int32) public reactionSum;
+
+    // signature replay protection per signer
+    mapping(address => uint64) public signerNonceMin;
+    mapping(address => mapping(uint64 => bool)) public signerNonceUsed;
+
+    // lanes for attestations (laneId -> config)
+    mapping(uint32 => AttestationLane) public lane;
+    uint32 public laneCount;
+    mapping(uint64 => mapping(uint32 => uint32)) public laneUsedOnFact; // factId->lane->count
+    mapping(uint64 => mapping(address => uint64)) public laneCooldownUntil; // factId->signer->time (for cooldown)
+
+    // bounty system
+    mapping(uint64 => Bounty) public bounties;
+    mapping(uint64 => Dispute) public disputes;
+
+    // pull payments
+    mapping(address => uint256) public pendingWei;
+
+    // schedule
+    address public treasury;
+    uint16 public feeBps;
