@@ -430,3 +430,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     }
 
     // =============================================================
+    //                               BOUNTIES
+    // =============================================================
+
+    function postBounty(uint64 factId, bytes32 rubric) external payable whenNotPaused nonReentrant returns (uint64 bountyId) {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        if (msg.value == 0) revert HSP_ZeroValue();
+        if (msg.value < minBountyWei) revert HSP_BadAmount();
+        if (rubric == bytes32(0)) revert HSP_BadHash();
+
+        FactCore storage f = facts[factId];
+        if ((f.flags & FLAG_FROZEN) != 0) revert HSP_BadState();
+
+        bountyId = ++bountyCount;
+        Bounty storage b = bounties[bountyId];
+        b.factId = factId;
+        b.sponsor = msg.sender;
+        b.postedAt = uint64(block.timestamp);
+        b.rubric = rubric;
+        b.pot = msg.value;
+        b.feeBpsAtPost = feeBps;
+        b.commitBy = uint64(block.timestamp) + commitWindow;
+        b.revealBy = b.commitBy + revealWindow;
+        b.disputeBy = b.revealBy + disputeWindow;
+        b.state = 0;
+
+        emit BountyPosted(bountyId, factId, msg.sender, msg.value, rubric);
+    }
+
+    function topUpBounty(uint64 bountyId) external payable whenNotPaused nonReentrant {
+        if (bountyId == 0 || bountyId > bountyCount) revert HSP_NotFound();
+        if (msg.value == 0) revert HSP_ZeroValue();
+        Bounty storage b = bounties[bountyId];
+        if (b.state >= 4) revert HSP_BadState();
+        b.pot += msg.value;
+        b.sponsorTopups += msg.value;
+        emit BountyToppedUp(bountyId, msg.sender, msg.value, b.pot);
+    }
+
+    function commitSolution(uint64 bountyId, bytes32 solutionHash) external whenNotPaused {
+        if (bountyId == 0 || bountyId > bountyCount) revert HSP_NotFound();
+        Bounty storage b = bounties[bountyId];
+        if (b.state != 0) revert HSP_BadState();
+        if (block.timestamp > b.commitBy) revert HSP_Expired();
+        if (solutionHash == bytes32(0)) revert HSP_BadHash();
+        b.solver = msg.sender;
+        b.solutionCommit = solutionHash;
+        b.state = 1;
+        emit BountyCommitted(bountyId, msg.sender, solutionHash, uint64(block.timestamp));
