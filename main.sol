@@ -46,3 +46,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     error HSP_BadRange();
     error HSP_BadState();
     error HSP_NotAllowed();
+    error HSP_Expired();
+    error HSP_BadSig();
+    error HSP_Already();
+    error HSP_NotFound();
+    error HSP_TooMany();
+    error HSP_BadTopic();
+    error HSP_BadHash();
+    error HSP_BadAmount();
+    error HSP_DisputeOpen();
+    error HSP_DisputeClosed();
+    error HSP_NoFunds();
+    error HSP_FeeTooHigh();
+    error HSP_BadNonce();
+    error HSP_BadLength();
+
+    // =============================================================
+    //                              EVENTS
+    // =============================================================
+
+    event FactPublished(
+        uint64 indexed factId,
+        bytes32 indexed topic,
+        bytes32 indexed factHash,
+        address submitter,
+        uint64 publishedAt,
+        uint32 flags,
+        bytes32 uriHash
+    );
+
+    event FactRevised(
+        uint64 indexed factId,
+        bytes32 newFactHash,
+        bytes32 newUriHash,
+        address indexed editor,
+        uint64 editedAt
+    );
+
+    event FactTagged(uint64 indexed factId, bytes32 indexed tag, address indexed who, uint64 at);
+    event FactReacted(uint64 indexed factId, address indexed who, int8 delta, uint64 at, uint32 lane);
+
+    event AttestationStamped(
+        uint64 indexed factId,
+        address indexed attestOrRelay,
+        address indexed signer,
+        bytes32 packetHash,
+        uint64 at,
+        uint32 weight
+    );
