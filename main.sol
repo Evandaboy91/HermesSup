@@ -382,3 +382,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         _validateTopic(p.topic);
         _validateHash(p.factHash);
         _validateUriHash(p.uriHash);
+        if (p.submitter == address(0)) revert HSP_ZeroAddress();
+        if (p.lane == 0 || p.lane > laneCount) revert HSP_BadRange();
+
+        packetHash = _hashPacket(p);
+        signer = _recoverSigner(packetHash, sig);
+        if (!hasRole(ATTESTOR_ROLE, signer)) revert HSP_NotAllowed();
+
+        _useSignerNonce(signer, p.signerNonce);
+
+        uint32 weight = _laneWeight(p.lane, p.weightHint);
+        factId = _publish(p.topic, p.factHash, p.uriHash, p.submitter, FLAG_ATTESTED, p.lane, signer, packetHash, weight);
+        _stampAttestation(factId, p.lane, signer, packetHash, weight, msg.sender);
+    }
+
+    function stampAttestation(uint64 factId, uint32 laneId, bytes32 packetHash, uint32 weightHint, uint64 signerNonce, bytes calldata sig)
+        external
+        whenNotPaused
+    {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        if (laneId == 0 || laneId > laneCount) revert HSP_BadRange();
+        if (packetHash == bytes32(0)) revert HSP_BadHash();
+
+        FactCore storage f = facts[factId];
+        if ((f.flags & FLAG_FROZEN) != 0) revert HSP_BadState();
+
+        // signer signs a minimal packet that ties attestation to an existing factId and lane.
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    keccak256("Attest(uint64 factId,uint32 lane,bytes32 packetHash,uint64 signerNonce)"),
+                    factId,
+                    laneId,
+                    packetHash,
+                    signerNonce
+                )
+            )
+        );
+
+        address signer = digest.recover(sig);
+        if (!hasRole(ATTESTOR_ROLE, signer)) revert HSP_NotAllowed();
+        _useSignerNonce(signer, signerNonce);
+
+        uint32 w = _laneWeight(laneId, weightHint);
+        _stampAttestation(factId, laneId, signer, packetHash, w, msg.sender);
+        f.flags |= FLAG_ATTESTED;
+    }
+
+    // =============================================================
