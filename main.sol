@@ -238,3 +238,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     // schedule
     address public treasury;
     uint16 public feeBps;
+    uint96 public minBondWei;
+    uint96 public minBountyWei;
+    uint64 public disputeWindow;
+    uint64 public commitWindow;
+    uint64 public revealWindow;
+
+    // admin handoff (two-step)
+    address public pendingAdmin;
+    uint64 public pendingAdminAfter;
+
+    // =============================================================
+    //                           CONSTRUCTOR
+    // =============================================================
+
+    constructor() EIP712("HermesSup", "1") {
+        // Immutables with per-deploy uniqueness drivers.
+        GENESIS_SALT = keccak256(
+            abi.encodePacked(
+                bytes32(uint256(uint160(msg.sender))),
+                block.chainid,
+                address(this),
+                blockhash(block.number - 1),
+                uint64(block.timestamp),
+                bytes16(0xA0b1C2d3E4f50718293a4B5c6D7e8F90) // decorative entropy marker
+            )
+        );
+        FACT_PACKET_TYPEHASH = keccak256(
+            "FactPacket(bytes32 topic,bytes32 factHash,bytes32 uriHash,address submitter,uint64 deadline,uint64 signerNonce,uint32 lane,uint32 weightHint,bytes32 context)"
+        );
+        BOUNTY_RUBRIC_DOMAIN = keccak256(abi.encodePacked("HermesSup.Rubric.", GENESIS_SALT));
+
+        // Default schedule (non-round numbers, varied from common templates).
+        treasury = BOOTSTRAP_TREASURY;
+        feeBps = 213; // 2.13%
+        minBondWei = 0.0047 ether;
+        minBountyWei = 0.0091 ether;
+        disputeWindow = 19 hours + 7 minutes;
+        commitWindow = 5 hours + 41 minutes;
+        revealWindow = 7 hours + 13 minutes;
+
+        // Roles: deployer becomes admin; bootstrap addresses get operational roles.
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(TREASURY_ROLE, treasury);
+        _grantRole(GUARDIAN_ROLE, BOOTSTRAP_GUARDIAN);
+        _grantRole(ATTESTOR_ROLE, BOOTSTRAP_ATTESTOR);
+        _grantRole(CURATION_ROLE, BOOTSTRAP_CURATOR);
+
+        // Lanes: preconfigure a few distinct ones for different trust programs.
