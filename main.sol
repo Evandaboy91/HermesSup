@@ -142,3 +142,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         uint32 lane;
         uint32 weightHint;
         bytes32 context;
+    }
+
+    struct Bounty {
+        uint64 factId;
+        address sponsor;
+        address solver;
+        uint64 postedAt;
+        uint64 commitBy;
+        uint64 revealBy;
+        uint64 disputeBy;
+        bytes32 rubric;
+        bytes32 solutionCommit;
+        bytes32 solutionReveal;
+        bytes32 challengeHash;
+        uint256 pot;
+        uint256 sponsorTopups;
+        uint96 bond;
+        uint16 feeBpsAtPost;
+        uint8 state; // 0=open,1=committed,2=revealed,3=challenged,4=resolved,5=cancelled
+        bool challenged;
+    }
+
+    struct Dispute {
+        uint64 bountyId;
+        address opener;
+        uint64 openedAt;
+        uint96 bond;
+        bytes32 challengeHash;
+        bool finalized;
+        bool upheld;
+    }
+
+    // =============================================================
+    //                           CONSTANTS / IMMUTABLES
+    // =============================================================
+
+    uint256 private constant _BPS = 10_000;
+    uint16 public constant MAX_FEE_BPS = 1_250; // 12.5%
+
+    uint32 public constant FLAG_ATTESTED = 1 << 0;
+    uint32 public constant FLAG_REVISED = 1 << 1;
+    uint32 public constant FLAG_FLAGGED = 1 << 2;
+    uint32 public constant FLAG_FROZEN = 1 << 3;
+
+    bytes32 public immutable GENESIS_SALT;
+    bytes32 public immutable FACT_PACKET_TYPEHASH;
+    bytes32 public immutable BOUNTY_RUBRIC_DOMAIN;
+
