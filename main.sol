@@ -334,3 +334,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         _validateHash(newFactHash);
         _validateUriHash(newUriHash);
 
+        f.factHash = newFactHash;
+        f.uriHash = newUriHash;
+        f.flags |= FLAG_REVISED;
+        f.editedAt = uint64(block.timestamp);
+        emit FactRevised(factId, newFactHash, newUriHash, msg.sender, uint64(block.timestamp));
+    }
+
+    // =============================================================
+    //                       TAGS + REACTIONS
+    // =============================================================
+
+    function addTag(uint64 factId, bytes32 tag) external whenNotPaused {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        if (tag == bytes32(0)) revert HSP_BadHash();
+        if (tagged[factId][tag]) revert HSP_Already();
+        tagged[factId][tag] = true;
+        uint32 c = tagCount[factId] + 1;
+        tagCount[factId] = c;
+        emit FactTagged(factId, tag, msg.sender, uint64(block.timestamp));
+    }
+
+    function react(uint64 factId, int8 delta, uint32 laneHint) external whenNotPaused {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        if (delta != -1 && delta != 1) revert HSP_BadRange();
+        FactCore storage f = facts[factId];
+        if ((f.flags & FLAG_FROZEN) != 0) revert HSP_BadState();
+        int8 prev = reactionOf[factId][msg.sender];
+        if (prev == delta) revert HSP_Already();
+        reactionOf[factId][msg.sender] = delta;
+        int32 sum = reactionSum[factId];
+        sum = sum + int32(delta) - int32(prev);
+        reactionSum[factId] = sum;
+        emit FactReacted(factId, msg.sender, delta, uint64(block.timestamp), laneHint);
+    }
+
+    // =============================================================
+    //                           ATTESTATIONS
+    // =============================================================
+
+    function publishAttested(FactPacket calldata p, bytes calldata sig)
+        external
+        whenNotPaused
+        returns (uint64 factId, bytes32 packetHash, address signer)
+    {
+        if (p.deadline != 0 && block.timestamp > p.deadline) revert HSP_Expired();
+        _validateTopic(p.topic);
+        _validateHash(p.factHash);
+        _validateUriHash(p.uriHash);
