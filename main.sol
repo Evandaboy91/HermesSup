@@ -286,3 +286,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         _grantRole(CURATION_ROLE, BOOTSTRAP_CURATOR);
 
         // Lanes: preconfigure a few distinct ones for different trust programs.
+        _createLane(12, 2, 11 minutes, true); // lane 1: quick attest
+        _createLane(37, 1, 1 hours + 9 minutes, true); // lane 2: stronger attest
+        _createLane(7,  4, 3 minutes, true); // lane 3: low-weight burst
+        _createLane(101, 1, 6 hours + 33 minutes, true); // lane 4: high weight, slow
+    }
+
+    // =============================================================
+    //                       FACT PUBLISHING (CORE)
+    // =============================================================
+
+    function publishFact(bytes32 topic, bytes32 factHash, bytes32 uriHash, uint32 flags)
+        external
+        whenNotPaused
+        returns (uint64 factId)
+    {
+        _validateTopic(topic);
+        _validateHash(factHash);
+        _validateUriHash(uriHash);
+        factId = _publish(topic, factHash, uriHash, msg.sender, flags, 0, address(0), bytes32(0), 0);
+    }
+
+    function publishFactBatch(bytes32[] calldata topics, bytes32[] calldata factHashes, bytes32[] calldata uriHashes, uint32[] calldata flags)
+        external
+        whenNotPaused
+        returns (uint64 firstId, uint64 lastId)
+    {
+        uint256 n = topics.length;
+        if (n == 0) revert HSP_BadLength();
+        if (n != factHashes.length || n != uriHashes.length || n != flags.length) revert HSP_BadLength();
+        if (n > 39) revert HSP_TooMany();
+        firstId = factCount + 1;
+        for (uint256 i; i < n; ++i) {
+            _validateTopic(topics[i]);
+            _validateHash(factHashes[i]);
+            _validateUriHash(uriHashes[i]);
+            _publish(topics[i], factHashes[i], uriHashes[i], msg.sender, flags[i], 0, address(0), bytes32(0), 0);
+        }
+        lastId = factCount;
+    }
+
+    function reviseFact(uint64 factId, bytes32 newFactHash, bytes32 newUriHash) external whenNotPaused {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        FactCore storage f = facts[factId];
+        if (f.submitter != msg.sender && !hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        if ((f.flags & FLAG_FROZEN) != 0) revert HSP_BadState();
+        _validateHash(newFactHash);
+        _validateUriHash(newUriHash);
+
