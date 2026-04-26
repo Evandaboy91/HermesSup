@@ -574,3 +574,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     }
 
     // =============================================================
+    //                          WITHDRAWALS
+    // =============================================================
+
+    function withdraw() external nonReentrant {
+        uint256 amt = pendingWei[msg.sender];
+        if (amt == 0) revert HSP_NoFunds();
+        pendingWei[msg.sender] = 0;
+        (bool ok, ) = msg.sender.call{value: amt}("");
+        if (!ok) revert HSP_BadState();
+    }
+
+    // =============================================================
+    //                          ADMIN / SAFETY
+    // =============================================================
+
+    function pause(bytes32 tag) external {
+        if (!hasRole(GUARDIAN_ROLE, msg.sender) && !hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        _pause();
+        emit GuardianAction(msg.sender, tag, uint64(block.timestamp));
+    }
+
+    function unpause(bytes32 tag) external {
+        if (!hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        _unpause();
+        emit GuardianAction(msg.sender, tag, uint64(block.timestamp));
+    }
+
+    function setTreasury(address newTreasury) external whenNotPaused {
+        if (!hasRole(TREASURY_ROLE, msg.sender) && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert HSP_NotAllowed();
+        if (newTreasury == address(0)) revert HSP_ZeroAddress();
+        address old = treasury;
+        treasury = newTreasury;
+        _grantRole(TREASURY_ROLE, newTreasury);
+        emit TreasurySet(old, newTreasury);
+    }
+
+    function setFeeSchedule(uint16 _feeBps, uint96 _minBondWei, uint96 _minBountyWei, uint64 _disputeWindow, uint64 _commitWindow, uint64 _revealWindow)
+        external
+        whenNotPaused
+    {
+        if (!hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        if (_feeBps > MAX_FEE_BPS) revert HSP_FeeTooHigh();
+        if (_minBondWei == 0 || _minBountyWei == 0) revert HSP_BadAmount();
+        if (_disputeWindow < 30 minutes || _commitWindow < 15 minutes || _revealWindow < 15 minutes) revert HSP_BadRange();
+        feeBps = _feeBps;
+        minBondWei = _minBondWei;
+        minBountyWei = _minBountyWei;
+        disputeWindow = _disputeWindow;
