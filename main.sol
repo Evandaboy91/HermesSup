@@ -862,3 +862,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         uint256 fee = (pot * uint256(b.feeBpsAtPost)) / _BPS;
         if (fee != 0) pendingWei[treasury] += fee;
         uint256 pay = pot - fee;
+        pendingWei[winner] += pay;
+
+        emit BountyResolved(bountyId, b.factId, winner, pay, fee, challenged);
+
+        if (challenged && disputeId != 0) {
+            Dispute storage d = disputes[disputeId];
+            if (!d.finalized) revert HSP_DisputeOpen();
+        }
+    }
+
+    function _createLane(uint32 weight, uint32 maxPerFact, uint64 cooldown, bool enabled) internal returns (uint32 laneId) {
+        if (weight == 0 || weight > 1_000) revert HSP_BadRange();
+        if (maxPerFact == 0 || maxPerFact > 12) revert HSP_BadRange();
+        if (cooldown > 7 days) revert HSP_BadRange();
+        laneId = ++laneCount;
+        lane[laneId] = AttestationLane({weight: weight, maxPerFact: maxPerFact, cooldown: cooldown, enabled: enabled});
+    }
+
+    function _validateTopic(bytes32 topic) internal pure {
+        if (topic == bytes32(0)) revert HSP_BadTopic();
+        // reject "all-ff" sentinel and low-entropy topics
+        if (topic == bytes32(type(uint256).max)) revert HSP_BadTopic();
+        // require at least one non-zero byte in high half too (discourages tiny ids)
+        if (uint128(uint256(topic)) == 0 || uint128(uint256(topic >> 128)) == 0) revert HSP_BadTopic();
+    }
+
+    function _validateHash(bytes32 h) internal pure {
+        if (h == bytes32(0)) revert HSP_BadHash();
+        if (h == bytes32(type(uint256).max)) revert HSP_BadHash();
+    }
+
+    function _validateUriHash(bytes32 h) internal pure {
+        if (h == bytes32(0)) revert HSP_BadHash();
+    }
+
+    // =============================================================
+    //                         RECEIVE / FALLBACK
+    // =============================================================
+
+    receive() external payable {
+        // accept tips; route to treasury pull balance
+        if (msg.value != 0) pendingWei[treasury] += msg.value;
+    }
+
+    fallback() external payable {
+        if (msg.value != 0) pendingWei[treasury] += msg.value;
+    }
+}
