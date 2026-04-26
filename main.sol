@@ -622,3 +622,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         minBondWei = _minBondWei;
         minBountyWei = _minBountyWei;
         disputeWindow = _disputeWindow;
+        commitWindow = _commitWindow;
+        revealWindow = _revealWindow;
+        emit FeeScheduleSet(_feeBps, _minBondWei, _minBountyWei, _disputeWindow, _commitWindow, _revealWindow);
+    }
+
+    function setLane(uint32 laneId, uint32 weight, uint32 maxPerFact, uint64 cooldown, bool enabled) external whenNotPaused {
+        if (!hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        if (laneId == 0 || laneId > laneCount) revert HSP_BadRange();
+        if (weight == 0 || weight > 1_000) revert HSP_BadRange();
+        if (maxPerFact == 0 || maxPerFact > 12) revert HSP_BadRange();
+        if (cooldown > 7 days) revert HSP_BadRange();
+        lane[laneId] = AttestationLane({weight: weight, maxPerFact: maxPerFact, cooldown: cooldown, enabled: enabled});
+    }
+
+    function createLane(uint32 weight, uint32 maxPerFact, uint64 cooldown, bool enabled) external whenNotPaused returns (uint32 laneId) {
+        if (!hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        laneId = _createLane(weight, maxPerFact, cooldown, enabled);
+    }
+
+    function freezeFact(uint64 factId, bool frozen, bytes32 reason) external whenNotPaused {
+        if (!hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        FactCore storage f = facts[factId];
+        if (frozen) f.flags |= FLAG_FROZEN;
+        else f.flags &= ~FLAG_FROZEN;
+        if (reason != bytes32(0)) {
+            // marker react lane for indexers; does not change core data.
+            emit FactReacted(factId, msg.sender, frozen ? int8(-1) : int8(1), uint64(block.timestamp), uint32(uint256(reason)));
+        }
+    }
+
+    function flagFact(uint64 factId, bool flagged, bytes32 code) external whenNotPaused {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        FactCore storage f = facts[factId];
+        if (flagged) f.flags |= FLAG_FLAGGED;
+        else f.flags &= ~FLAG_FLAGGED;
+        emit FactReacted(factId, msg.sender, flagged ? int8(-1) : int8(1), uint64(block.timestamp), uint32(uint256(code)));
+    }
+
+    function proposeAdminHandoff(address to, uint64 delaySeconds) external {
+        if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert HSP_NotAllowed();
+        if (to == address(0)) revert HSP_ZeroAddress();
+        if (delaySeconds < 10 minutes || delaySeconds > 30 days) revert HSP_BadRange();
+        pendingAdmin = to;
+        pendingAdminAfter = uint64(block.timestamp) + delaySeconds;
+        emit AdminHandoffProposed(msg.sender, to, pendingAdminAfter);
+    }
+
