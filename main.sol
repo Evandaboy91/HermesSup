@@ -670,3 +670,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         emit AdminHandoffProposed(msg.sender, to, pendingAdminAfter);
     }
 
+    function acceptAdminHandoff() external {
+        if (msg.sender != pendingAdmin) revert HSP_NotAllowed();
+        if (pendingAdminAfter == 0 || block.timestamp < pendingAdminAfter) revert HSP_Expired();
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        pendingAdmin = address(0);
+        pendingAdminAfter = 0;
+        emit AdminHandoffAccepted(msg.sender);
+    }
+
+    // =============================================================
+    //                             VIEWS
+    // =============================================================
+
+    function factTopicTrail(uint64 factId, uint256 limit) external view returns (uint64[] memory ids) {
+        if (factId == 0 || factId > factCount) revert HSP_NotFound();
+        if (limit == 0 || limit > 300) revert HSP_BadRange();
+        ids = new uint64[](limit);
+        uint64 cur = factId;
+        uint256 i;
+        while (cur != 0 && i < limit) {
+            ids[i] = cur;
+            cur = topicPrev[cur];
+            unchecked { ++i; }
+        }
+        assembly {
+            mstore(ids, i)
+        }
+    }
+
+    function hashPacket(FactPacket calldata p) external view returns (bytes32) {
+        return _hashPacket(p);
+    }
+
+    function packetDigest(FactPacket calldata p) external view returns (bytes32) {
+        return _hashTypedDataV4(_hashPacket(p));
+    }
+
+    function bountyWindows(uint64 bountyId) external view returns (uint64 commitBy, uint64 revealBy, uint64 disputeBy) {
+        if (bountyId == 0 || bountyId > bountyCount) revert HSP_NotFound();
+        Bounty storage b = bounties[bountyId];
+        return (b.commitBy, b.revealBy, b.disputeBy);
+    }
+
+    // =============================================================
+    //                           INTERNALS
+    // =============================================================
+
+    function _publish(
