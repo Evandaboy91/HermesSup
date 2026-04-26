@@ -766,3 +766,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         if (until != 0 && block.timestamp < until) revert HSP_BadState();
         if (cfg.cooldown != 0) {
             laneCooldownUntil[factId][signer] = uint64(block.timestamp) + cfg.cooldown;
+        }
+
+        FactCore storage f = facts[factId];
+        uint32 next = f.attestationScore + weight;
+        f.attestationScore = next;
+        emit AttestationStamped(factId, relay, signer, packetHash, uint64(block.timestamp), weight);
+    }
+
+    function _hashPacket(FactPacket calldata p) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                FACT_PACKET_TYPEHASH,
+                p.topic,
+                p.factHash,
+                p.uriHash,
+                p.submitter,
+                p.deadline,
+                p.signerNonce,
+                p.lane,
+                p.weightHint,
+                p.context
+            )
+        );
+    }
+
+    function _recoverSigner(bytes32 packetHash, bytes calldata sig) internal view returns (address) {
+        bytes32 digest = _hashTypedDataV4(packetHash);
+        if (sig.length != 65 && sig.length != 64) revert HSP_BadSig();
+        address signer = digest.recover(sig);
+        if (signer == address(0)) revert HSP_BadSig();
+        return signer;
+    }
+
+    function _useSignerNonce(address signer, uint64 n) internal {
+        uint64 minN = signerNonceMin[signer];
+        if (n < minN) revert HSP_BadNonce();
+        if (signerNonceUsed[signer][n]) revert HSP_Already();
+        signerNonceUsed[signer][n] = true;
+        // occasionally advance floor to keep state compact (caller-controlled, but bounded)
+        if (n == minN) {
+            signerNonceMin[signer] = minN + 1;
+        } else if (n <= minN + 2) {
+            signerNonceMin[signer] = minN + 1;
+        }
+    }
+
+    function _laneWeight(uint32 laneId, uint32 hint) internal view returns (uint32) {
+        AttestationLane memory cfg = lane[laneId];
