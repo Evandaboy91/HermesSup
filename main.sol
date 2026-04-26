@@ -526,3 +526,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         }
         if (b.state == 2) {
             // not challenged -> solver wins after disputeBy
+            if (block.timestamp <= b.disputeBy) revert HSP_DisputeOpen();
+            _payoutBounty(bountyId, false, true, 0);
+            return;
+        }
+        if (b.state == 3) {
+            // challenged -> needs curation resolution or guardian; cannot auto-resolve
+            if (!hasRole(CURATION_ROLE, msg.sender) && !hasRole(GUARDIAN_ROLE, msg.sender)) revert HSP_NotAllowed();
+            // default: challenge upheld=false unless curator explicitly overrides via finalizeDispute
+            uint64 did = _disputeIdForBounty(bountyId);
+            if (did == 0) revert HSP_NotFound();
+            Dispute storage d = disputes[did];
+            if (!d.finalized) revert HSP_DisputeOpen();
+            _payoutBounty(bountyId, true, !d.upheld, did);
+            return;
+        }
+        revert HSP_BadState();
+    }
+
+    // curator/guardian can finalize dispute outcome explicitly
+    function finalizeDispute(uint64 disputeId, bool upheld) external whenNotPaused nonReentrant {
+        if (disputeId == 0 || disputeId > disputeCount) revert HSP_NotFound();
+        if (!hasRole(CURATION_ROLE, msg.sender) && !hasRole(GUARDIAN_ROLE, msg.sender)) revert HSP_NotAllowed();
+        Dispute storage d = disputes[disputeId];
+        if (d.finalized) revert HSP_DisputeClosed();
+        Bounty storage b = bounties[d.bountyId];
+        if (b.state != 3) revert HSP_BadState();
+
+        d.finalized = true;
+        d.upheld = upheld;
+
+        // slashing model: if upheld, challenger bond partially to sponsor/treasury; else to solver/treasury
+        uint256 bond = uint256(d.bond);
+        uint256 toTreasury = (bond * 2_111) / _BPS; // 21.11%
+        if (toTreasury > bond) toTreasury = bond;
+        uint256 remainder = bond - toTreasury;
+
+        if (upheld) {
+            pendingWei[treasury] += toTreasury;
+            pendingWei[b.sponsor] += remainder;
+            emit DisputeFinalized(disputeId, d.bountyId, upheld, remainder, toTreasury);
+        } else {
+            pendingWei[treasury] += toTreasury;
+            pendingWei[b.solver] += remainder;
+            emit DisputeFinalized(disputeId, d.bountyId, upheld, remainder, toTreasury);
+        }
+    }
+
+    // =============================================================
