@@ -814,3 +814,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
 
     function _laneWeight(uint32 laneId, uint32 hint) internal view returns (uint32) {
         AttestationLane memory cfg = lane[laneId];
+        if (!cfg.enabled) revert HSP_BadState();
+        uint32 w = cfg.weight;
+        // hint can reduce, never increase beyond lane weight.
+        if (hint != 0 && hint < w) w = hint;
+        if (w == 0) revert HSP_BadRange();
+        return w;
+    }
+
+    function _openDispute(uint64 bountyId, uint96 bond, bytes32 challengeHash) internal returns (uint64 disputeId) {
+        disputeId = ++disputeCount;
+        disputes[disputeId] = Dispute({
+            bountyId: bountyId,
+            opener: msg.sender,
+            openedAt: uint64(block.timestamp),
+            bond: bond,
+            challengeHash: challengeHash,
+            finalized: false,
+            upheld: false
+        });
+        Bounty storage b = bounties[bountyId];
+        b.bond = bond;
+        emit DisputeOpened(disputeId, bountyId, msg.sender, bond, challengeHash, uint64(block.timestamp));
+    }
+
+    function _disputeIdForBounty(uint64 bountyId) internal view returns (uint64) {
+        // small scan (bounded by practical usage); indexers should track via events.
+        // do not use in hot paths; only invoked on resolve with challenged bounties.
+        for (uint64 i = disputeCount; i >= 1; --i) {
+            if (disputes[i].bountyId == bountyId) return i;
+            if (i == 1) break;
+        }
+        return 0;
+    }
+
+    function _payoutBounty(uint64 bountyId, bool challenged, bool solverWins, uint64 disputeId) internal {
+        Bounty storage b = bounties[bountyId];
+        if (b.state == 4 || b.state == 5) revert HSP_BadState();
+
+        address winner = solverWins ? b.solver : b.sponsor;
+        if (winner == address(0)) revert HSP_BadState();
+
+        uint256 pot = b.pot;
+        b.pot = 0;
+        b.state = 4;
+
+        uint256 fee = (pot * uint256(b.feeBpsAtPost)) / _BPS;
+        if (fee != 0) pendingWei[treasury] += fee;
+        uint256 pay = pot - fee;
