@@ -718,3 +718,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     // =============================================================
 
     function _publish(
+        bytes32 topic,
+        bytes32 factHash,
+        bytes32 uriHash,
+        address submitter,
+        uint32 flags,
+        uint32 laneId,
+        address signer,
+        bytes32 packetHash,
+        uint32 weight
+    ) internal returns (uint64 factId) {
+        factId = ++factCount;
+        uint64 nowTs = uint64(block.timestamp);
+        facts[factId] = FactCore({
+            topic: topic,
+            factHash: factHash,
+            uriHash: uriHash,
+            submitter: submitter,
+            publishedAt: nowTs,
+            editedAt: 0,
+            flags: flags,
+            attestationScore: 0
+        });
+
+        // topic trail (single-linked list)
+        uint64 head = topicHead[topic];
+        topicHead[topic] = factId;
+        topicPrev[factId] = head;
+
+        emit FactPublished(factId, topic, factHash, submitter, nowTs, flags, uriHash);
+
+        if (signer != address(0) && packetHash != bytes32(0) && laneId != 0 && weight != 0) {
+            _stampAttestation(factId, laneId, signer, packetHash, weight, msg.sender);
+            FactCore storage f = facts[factId];
+            f.flags |= FLAG_ATTESTED;
+        }
+    }
+
+    function _stampAttestation(uint64 factId, uint32 laneId, address signer, bytes32 packetHash, uint32 weight, address relay) internal {
+        AttestationLane memory cfg = lane[laneId];
+        if (!cfg.enabled) revert HSP_BadState();
+        uint32 used = laneUsedOnFact[factId][laneId];
+        if (used >= cfg.maxPerFact) revert HSP_TooMany();
+        laneUsedOnFact[factId][laneId] = used + 1;
+
+        uint64 until = laneCooldownUntil[factId][signer];
+        if (until != 0 && block.timestamp < until) revert HSP_BadState();
+        if (cfg.cooldown != 0) {
+            laneCooldownUntil[factId][signer] = uint64(block.timestamp) + cfg.cooldown;
