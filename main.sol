@@ -478,3 +478,51 @@ contract HermesSup is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         b.solutionCommit = solutionHash;
         b.state = 1;
         emit BountyCommitted(bountyId, msg.sender, solutionHash, uint64(block.timestamp));
+    }
+
+    function revealSolution(uint64 bountyId, bytes32 reveal, bytes32 salt) external whenNotPaused {
+        if (bountyId == 0 || bountyId > bountyCount) revert HSP_NotFound();
+        Bounty storage b = bounties[bountyId];
+        if (b.state != 1) revert HSP_BadState();
+        if (msg.sender != b.solver) revert HSP_NotAllowed();
+        if (block.timestamp > b.revealBy) revert HSP_Expired();
+        if (reveal == bytes32(0) || salt == bytes32(0)) revert HSP_BadHash();
+        bytes32 check = keccak256(abi.encodePacked(BOUNTY_RUBRIC_DOMAIN, bountyId, reveal, salt, msg.sender));
+        if (check != b.solutionCommit) revert HSP_BadHash();
+        b.solutionReveal = reveal;
+        b.state = 2;
+    }
+
+    function challengeBounty(uint64 bountyId, bytes32 challengeHash) external payable whenNotPaused nonReentrant returns (uint64 disputeId) {
+        if (bountyId == 0 || bountyId > bountyCount) revert HSP_NotFound();
+        if (challengeHash == bytes32(0)) revert HSP_BadHash();
+        Bounty storage b = bounties[bountyId];
+        if (b.state != 2) revert HSP_BadState();
+        if (block.timestamp > b.disputeBy) revert HSP_Expired();
+        if (msg.value < minBondWei) revert HSP_BadAmount();
+
+        b.challengeHash = challengeHash;
+        b.challenged = true;
+        b.state = 3;
+
+        disputeId = _openDispute(bountyId, uint96(msg.value), challengeHash);
+        emit BountyChallenged(bountyId, msg.sender, challengeHash, uint64(block.timestamp));
+    }
+
+    function resolveBounty(uint64 bountyId) external whenNotPaused nonReentrant {
+        if (bountyId == 0 || bountyId > bountyCount) revert HSP_NotFound();
+        Bounty storage b = bounties[bountyId];
+        if (b.state == 4 || b.state == 5) revert HSP_BadState();
+        if (b.state == 0) revert HSP_BadState();
+        if (b.state == 1) {
+            // commit expired -> sponsor can cancel
+            if (block.timestamp <= b.commitBy) revert HSP_DisputeOpen();
+            if (msg.sender != b.sponsor && !hasRole(CURATION_ROLE, msg.sender)) revert HSP_NotAllowed();
+            b.state = 5;
+            pendingWei[b.sponsor] += b.pot;
+            b.pot = 0;
+            emit BountyResolved(bountyId, b.factId, address(0), 0, 0, false);
+            return;
+        }
+        if (b.state == 2) {
+            // not challenged -> solver wins after disputeBy
